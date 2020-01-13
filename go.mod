@@ -1,4 +1,4 @@
-module github.com/arturoguerra/kubernetes-xenserver-storage
+module github.com/arturoguerra/xendaemon
 
 go 1.13
 
