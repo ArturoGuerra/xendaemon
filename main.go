@@ -165,8 +165,8 @@ func mount(mountDir, jsonOptions string) {
 		if vbd.VDI == vdiUUID && vbd.CurrentlyAttached {
             debug("VDB is still attached!")
             var waitForUnmount bool = true
-            for i := 5; i > 0; i-- {
-                time.Sleep(2 * time.Second)
+            for i := 15; i > 0; i-- {
+                time.Sleep(1 * time.Second)
                 debug(fmt.Sprintf("Checking for VBD Changes %d retires till timeout...", i))
 
                 // Keeps checking back till the VBD is free for use
