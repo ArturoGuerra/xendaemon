@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"strings"
 	"syscall"
+    "time"
 
 	xenapi "github.com/terra-farm/go-xen-api-client"
 )
@@ -160,7 +161,7 @@ func mount(mountDir, jsonOptions string) {
 		failure(err)
 	}
 
-	for ref, vbd := range vbds {
+	for _, vbd := range vbds {
 		if vbd.VDI == vdiUUID && vbd.CurrentlyAttached {
             debug("VDB is still attached!")
             for vbd.CurrentlyAttached {
