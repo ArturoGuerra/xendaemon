@@ -161,7 +161,7 @@ func mount(mountDir, jsonOptions string) {
 		failure(err)
 	}
 
-	for _, vbd := range vbds {
+	for ref, vbd := range vbds {
 		if vbd.VDI == vdiUUID && vbd.CurrentlyAttached {
             debug("VDB is still attached!")
             var waitForUnmount bool = true
@@ -177,8 +177,8 @@ func mount(mountDir, jsonOptions string) {
 
                 for _, nvbd := range nvbds {
                     if nvbd.VDI == vdiUUID && nvbd.CurrentlyAttached == false {
-                        debug("VBD is unmounted")
                         waitForUnmount = false
+                        break
                     }
                 }
 
@@ -187,9 +187,14 @@ func mount(mountDir, jsonOptions string) {
                     break
                 }
             }
-//			if err := detachVBD(ref, xapi, session); err != nil {
-//				failure(err)
-//			}
+
+            // Something is fucked so we will try to force unmount
+            if waitForUnmount {
+                debug("VBD was never unmounted and detached, forcing detachment")
+                if err := detachVBD(ref, xapi, session); err != nil {
+      				failure(err)
+    			}
+            }
 		}
 	}
 
