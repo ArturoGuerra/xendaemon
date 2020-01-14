@@ -163,9 +163,12 @@ func mount(mountDir, jsonOptions string) {
 	for ref, vbd := range vbds {
 		if vbd.VDI == vdiUUID && vbd.CurrentlyAttached {
             debug("VDB is still attached!")
-			if err := detachVBD(ref, xapi, session); err != nil {
-				failure(err)
-			}
+            for vbd.CurrentlyAttached {
+                time.Sleep(10 * time.Second)
+            }
+//			if err := detachVBD(ref, xapi, session); err != nil {
+//				failure(err)
+//			}
 		}
 	}
 
