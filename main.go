@@ -164,8 +164,22 @@ func mount(mountDir, jsonOptions string) {
 	for _, vbd := range vbds {
 		if vbd.VDI == vdiUUID && vbd.CurrentlyAttached {
             debug("VDB is still attached!")
-            for vbd.CurrentlyAttached {
-                time.Sleep(10 * time.Second)
+            waitForUnmount := true
+            for vbd.CurrentlyAttached && waitForUnmount {
+                time.Sleep(5 * time.Second)
+                debug("Checking for VBD Changes...")
+
+                // Keeps checking back till the VBD is free for use
+                nvbds, err := xapi.VBD.GetAllRecords(session)
+                if err != nil {
+                    failure(err)
+                }
+
+                for _, nvbd := range nvbds {
+                    if nvbd.VDI == vbd.VDI && !nvbd.CurrentlyAttached {
+                        waitForUnmount = false
+                    }
+                }
             }
 //			if err := detachVBD(ref, xapi, session); err != nil {
 //				failure(err)
