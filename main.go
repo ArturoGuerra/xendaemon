@@ -32,6 +32,7 @@ type jsonParameter struct {
 	XenServerHost     string `json:"spangenberg.io/xenserver/host"`
 	XenServerPassword string `json:"spangenberg.io/xenserver/password"`
 	XenServerUsername string `json:"spangenberg.io/xenserver/username"`
+    VDIUUID           string `json:"VDIUUID`
 }
 
 func main() {
@@ -93,6 +94,7 @@ func failure(err error) {
 
 func mount(mountDir, jsonOptions string) {
 	jsonOptionsFile := fmt.Sprintf("%s.json", mountDir)
+    debug(jsonOptions)
 
 	byt := []byte(jsonOptions)
 	options := jsonParameter{}
@@ -155,46 +157,18 @@ func mount(mountDir, jsonOptions string) {
 		failure(errors.New("Could not find VDI"))
 	}
 
+    options.VDIUUID = string(vdiUUID)
+
 	debug("VBD.GetAllRecords")
 	vbds, err := xapi.VBD.GetAllRecords(session)
 	if err != nil {
 		failure(err)
 	}
 
-	for ref, vbd := range vbds {
+	for _, vbd := range vbds {
 		if vbd.VDI == vdiUUID && vbd.CurrentlyAttached {
-            debug("VDB is still attached!")
-            var waitForUnmount bool = true
-            for i := 15; i > 0; i-- {
-                time.Sleep(2 * time.Second)
-                debug(fmt.Sprintf("Checking for VBD Changes %d retires till timeout...", i))
-
-                // Keeps checking back till the VBD is free for use
-                nvbds, err := xapi.VBD.GetAllRecords(session)
-                if err != nil {
-                    failure(err)
-                }
-
-                for _, nvbd := range nvbds {
-                    if nvbd.VDI == vdiUUID && nvbd.CurrentlyAttached == false {
-                        waitForUnmount = false
-                        break
-                    }
-                }
-
-                if !waitForUnmount {
-                    debug("VBD has been unmounted")
-                    break
-                }
-            }
-
-            // Something is fucked so we will try to force unmount
-            if waitForUnmount {
-                debug("VBD was never unmounted and detached, forcing detachment")
-                if err := detachVBD(ref, xapi, session); err != nil {
-      				failure(err)
-    			}
-            }
+            time.Sleep(5 * time.Second)
+            failure(errors.New("VBD is currently attached"))
 		}
 	}
 
@@ -236,7 +210,8 @@ func mount(mountDir, jsonOptions string) {
 	}
 
 	debug("ioutil.WriteFile")
-	if err := ioutil.WriteFile(jsonOptionsFile, byt, 0600); err != nil {
+    f, _ := json.MarshalIndent(options, "", " ")
+	if err := ioutil.WriteFile(jsonOptionsFile, f, 0600); err != nil {
 		failure(err)
 	}
 
@@ -255,6 +230,7 @@ func mount(mountDir, jsonOptions string) {
 
 func unmount(mountDir string) {
 	jsonOptionsFile := fmt.Sprintf("%s.json", mountDir)
+    debug(jsonOptionsFile)
 
 	byt, err := ioutil.ReadFile(jsonOptionsFile)
 	if err != nil {
@@ -292,6 +268,7 @@ func unmount(mountDir string) {
 	}
 
 	device := devicePathElements[2]
+    var _ = device
 
 	debug("syscall.Unmount")
 	if err := syscall.Unmount(mountDir, 0); err != nil {
@@ -303,12 +280,20 @@ func unmount(mountDir string) {
 	if err != nil {
 		failure(err)
 	}
-
+    debug("Detaching Disk")
 	for ref, vbd := range vbds {
-		if vbd.VM == vm && vbd.Device == device && vbd.CurrentlyAttached {
-			if err := detachVBD(ref, xapi, session); err != nil {
-				failure(err)
-			}
+		if vbd.VM == vm && string(vbd.VDI) == options.VDIUUID {
+            debug(fmt.Sprintf("%v", vbd.VM))
+            debug(fmt.Sprintf("%v", vm))
+            debug(fmt.Sprintf("%v", vbd.VDI))
+            debug(fmt.Sprintf("%s", options.VDIUUID))
+            debug(fmt.Sprintf("%t", vbd.VM == vm))
+            debug("--------")
+            if vbd.CurrentlyAttached {
+		        if err := detachVBD(ref, xapi, session); err != nil {
+	     	        failure(err)
+			    }
+            }
 		}
 	}
 
@@ -340,7 +325,7 @@ func detachVBD(vbd xenapi.VBDRef, xapi *xenapi.Client, session xenapi.SessionRef
 func getMAC() (string, error) {
 	debug("net.Interfaces")
 	interfaces, err := net.Interfaces()
-	if err != nil {
+    if err != nil {
 		return "", err
 	}
 
