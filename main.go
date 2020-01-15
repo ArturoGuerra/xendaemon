@@ -1,397 +1,391 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io/ioutil"
-	"net"
-	"os"
-	"os/exec"
-	"strings"
-	"syscall"
+    "bytes"
+    "encoding/json"
+    "errors"
+    "fmt"
+    "io/ioutil"
+    "net"
+    "os"
+    "os/exec"
+    "strings"
+    "syscall"
     "time"
 
-	xenapi "github.com/terra-farm/go-xen-api-client"
+    xenapi "github.com/terra-farm/go-xen-api-client"
 )
 
 const (
-	debugLogFile = "/tmp/xenserver-driver.log"
+    debugLogFile = "/tmp/xenserver-driver.log"
 )
 
 type jsonParameter struct {
-	FSGroup           string `json:"kubernetes.io/fsGroup"`
-	FSType            string `json:"kubernetes.io/fsType"`
-	PVOrVolumeName    string `json:"kubernetes.io/pvOrVolumeName"`
-	PodName           string `json:"kubernetes.io/pod.name"`
-	PodNamespace      string `json:"kubernetes.io/pod.namespace"`
-	PodUID            string `json:"kubernetes.io/pod.uid"`
-	ReadWrite         string `json:"kubernetes.io/readwrite"`
-	ServiceAccount    string `json:"kubernetes.io/serviceAccount.name"`
-	XenServerHost     string `json:"spangenberg.io/xenserver/host"`
-	XenServerPassword string `json:"spangenberg.io/xenserver/password"`
-	XenServerUsername string `json:"spangenberg.io/xenserver/username"`
+    FSGroup           string `json:"kubernetes.io/fsGroup"`
+    FSType            string `json:"kubernetes.io/fsType"`
+    PVOrVolumeName    string `json:"kubernetes.io/pvOrVolumeName"`
+    PodName           string `json:"kubernetes.io/pod.name"`
+    PodNamespace      string `json:"kubernetes.io/pod.namespace"`
+    PodUID            string `json:"kubernetes.io/pod.uid"`
+    ReadWrite         string `json:"kubernetes.io/readwrite"`
+    ServiceAccount    string `json:"kubernetes.io/serviceAccount.name"`
+    XenServerHost     string `json:"spangenberg.io/xenserver/host"`
+    XenServerPassword string `json:"spangenberg.io/xenserver/password"`
+    XenServerUsername string `json:"spangenberg.io/xenserver/username"`
     VDIUUID           string `json:"VDIUUID`
 }
 
 func main() {
-	var command string
-	var mountDir string
-	var jsonOptions string
+    var command string
+    var mountDir string
+    var jsonOptions string
 
-	if len(os.Args) > 1 {
-		command = os.Args[1]
-	}
-	if len(os.Args) > 2 {
-		mountDir = os.Args[2]
-	}
-	if len(os.Args) > 3 {
-		jsonOptions = os.Args[3]
-	}
+    if len(os.Args) > 1 {
+        command = os.Args[1]
+    }
+    if len(os.Args) > 2 {
+        mountDir = os.Args[2]
+    }
+    if len(os.Args) > 3 {
+        jsonOptions = os.Args[3]
+    }
 
-	debug(fmt.Sprintf("%s %s %s", command, mountDir, jsonOptions))
+    debug(fmt.Sprintf("%s %s %s", command, mountDir, jsonOptions))
 
-	switch command {
-	case "init":
-		fmt.Print("{\"status\": \"Success\", \"capabilities\": {\"attach\": false}}")
-		os.Exit(0)
-	case "mount":
-		mount(mountDir, jsonOptions)
-	case "unmount":
-		unmount(mountDir)
-	default:
-		fmt.Print("{\"status\": \"Not supported\"}")
-		os.Exit(1)
-	}
+    switch command {
+    case "init":
+        fmt.Print("{\"status\": \"Success\", \"capabilities\": {\"attach\": false}}")
+        os.Exit(0)
+    case "mount":
+        mount(mountDir, jsonOptions)
+    case "unmount":
+        unmount(mountDir)
+    default:
+        fmt.Print("{\"status\": \"Not supported\"}")
+        os.Exit(1)
+    }
 }
 
 func debug(message string) {
-	if _, err := os.Stat(debugLogFile); err == nil {
-		f, _ := os.OpenFile(debugLogFile, os.O_APPEND|os.O_WRONLY, 0600)
-		defer f.Close()
-		f.WriteString(fmt.Sprintln(message))
-	}
+    if _, err := os.Stat(debugLogFile); err == nil {
+        f, _ := os.OpenFile(debugLogFile, os.O_APPEND|os.O_WRONLY, 0600)
+        defer f.Close()
+        f.WriteString(fmt.Sprintln(message))
+    }
 }
 
 func success() {
-	debug("SUCCESS")
+    debug("SUCCESS")
 
-	fmt.Print("{\"status\": \"Success\"}")
+    fmt.Print("{\"status\": \"Success\"}")
 
-	os.Exit(0)
+    os.Exit(0)
 }
 
 func failure(err error) {
-	debug(fmt.Sprintf("FAILURE - %s", err.Error()))
+    debug(fmt.Sprintf("FAILURE - %s", err.Error()))
 
-	failureMap := map[string]string{"status": "Failure", "message": err.Error()}
-	jsonMessage, _ := json.Marshal(failureMap)
-	fmt.Print(string(jsonMessage))
+    failureMap := map[string]string{"status": "Failure", "message": err.Error()}
+    jsonMessage, _ := json.Marshal(failureMap)
+    fmt.Print(string(jsonMessage))
 
-	os.Exit(1)
+    os.Exit(1)
 }
 
 func mount(mountDir, jsonOptions string) {
-	jsonOptionsFile := fmt.Sprintf("%s.json", mountDir)
+    jsonOptionsFile := fmt.Sprintf("%s.json", mountDir)
     debug(jsonOptions)
 
-	byt := []byte(jsonOptions)
-	options := jsonParameter{}
-	if err := json.Unmarshal(byt, &options); err != nil {
-		failure(err)
-	}
+    byt := []byte(jsonOptions)
+    options := jsonParameter{}
+    if err := json.Unmarshal(byt, &options); err != nil {
+        failure(err)
+    }
 
-	if options.FSType == "" {
-		options.FSType = "ext4"
-	}
+    if options.FSType == "" {
+        options.FSType = "ext4"
+    }
 
-	var mode xenapi.VbdMode
-	switch options.ReadWrite {
-	case "ro":
-		mode = xenapi.VbdModeRO
-	case "rw":
-		mode = xenapi.VbdModeRW
-	default:
-		failure(errors.New("Unknown ReadWrite"))
-	}
+    var mode xenapi.VbdMode
+    switch options.ReadWrite {
+    case "ro":
+        mode = xenapi.VbdModeRO
+    case "rw":
+        mode = xenapi.VbdModeRW
+    default:
+        failure(errors.New("Unknown ReadWrite"))
+    }
 
-	xapi, session, err := xapiLogin(options.XenServerHost, options.XenServerUsername, options.XenServerPassword)
-	if err != nil {
-		failure(fmt.Errorf("Could not login at XenServer, error: %s", err.Error()))
-	}
-	defer func() {
-		if err := xapiLogout(xapi, session); err != nil {
-			failure(fmt.Errorf("Failed to log out from XenServer, error: %s", err.Error()))
-		}
-	}()
+    xapi, session, err := xapiLogin(options.XenServerHost, options.XenServerUsername, options.XenServerPassword)
+    if err != nil {
+        failure(fmt.Errorf("Could not login at XenServer, error: %s", err.Error()))
+    }
+    defer func() {
+        if err := xapiLogout(xapi, session); err != nil {
+            failure(fmt.Errorf("Failed to log out from XenServer, error: %s", err.Error()))
+        }
+    }()
 
-	vm, err := getVM(xapi, session)
-	if err != nil {
-		failure(err)
-	}
+    vm, err := getVM(xapi, session)
+    if err != nil {
+        failure(err)
+    }
 
-	debug("VM.GetAllowedVBDDevices")
-	vbdDevices, err := xapi.VM.GetAllowedVBDDevices(session, vm)
-	if err != nil {
-		failure(err)
-	}
+    debug("VM.GetAllowedVBDDevices")
+    vbdDevices, err := xapi.VM.GetAllowedVBDDevices(session, vm)
+    if err != nil {
+        failure(err)
+    }
 
-	if len(vbdDevices) < 1 {
-		failure(errors.New("No VBD devices are available anymore"))
-	}
+    if len(vbdDevices) < 1 {
+        failure(errors.New("No VBD devices are available anymore"))
+    }
 
-	debug("VDI.GetAllRecords")
-	vdis, err := xapi.VDI.GetAllRecords(session)
-	if err != nil {
-		failure(err)
-	}
+    debug("VDI.GetAllRecords")
+    vdis, err := xapi.VDI.GetAllRecords(session)
+    if err != nil {
+        failure(err)
+    }
 
-	var vdiUUID xenapi.VDIRef
-	for ref, vdi := range vdis {
-		if vdi.NameLabel == options.PVOrVolumeName && !vdi.IsASnapshot {
-			vdiUUID = ref
-		}
-	}
-	if vdiUUID == "" {
-		failure(errors.New("Could not find VDI"))
-	}
+    var vdiUUID xenapi.VDIRef
+    for ref, vdi := range vdis {
+        if vdi.NameLabel == options.PVOrVolumeName && !vdi.IsASnapshot {
+            vdiUUID = ref
+        }
+    }
+    if vdiUUID == "" {
+        failure(errors.New("Could not find VDI"))
+    }
 
     options.VDIUUID = string(vdiUUID)
 
-	debug("VBD.GetAllRecords")
-	vbds, err := xapi.VBD.GetAllRecords(session)
-	if err != nil {
-		failure(err)
-	}
+    debug("VBD.GetAllRecords")
+    vbds, err := xapi.VBD.GetAllRecords(session)
+    if err != nil {
+        failure(err)
+    }
 
-	for _, vbd := range vbds {
-		if vbd.VDI == vdiUUID && vbd.CurrentlyAttached {
+    for ref, vbd := range vbds {
+        if vbd.VDI == vdiUUID && vbd.CurrentlyAttached {
+            debug("Attempting to safely detached VDI")
             time.Sleep(5 * time.Second)
-            failure(errors.New("VBD is currently attached"))
-		}
-	}
+            if err := detachVBD(ref, xapi, session); err != nil {
+                failure(err)
+            }
+        }
+    }
 
-	debug("VBD.Create")
-	vbdUUID, err := xapi.VBD.Create(session, xenapi.VBDRecord{
-		Bootable:    false,
-		Mode:        mode,
-		Type:        xenapi.VbdTypeDisk,
-		Unpluggable: true,
-		Userdevice:  vbdDevices[0],
-		VDI:         vdiUUID,
-		VM:          vm,
-	})
-	if err != nil {
-		failure(err)
-	}
+    debug("VBD.Create")
+    vbdUUID, err := xapi.VBD.Create(session, xenapi.VBDRecord{
+        Bootable:    false,
+        Mode:        mode,
+        Type:        xenapi.VbdTypeDisk,
+        Unpluggable: true,
+        Userdevice:  vbdDevices[0],
+        VDI:         vdiUUID,
+        VM:          vm,
+    })
+    if err != nil {
+        failure(err)
+    }
 
-	debug("VBD.Plug")
-	if err := xapi.VBD.Plug(session, vbdUUID); err != nil {
-		failure(err)
-	}
+    debug("VBD.Plug")
+    if err := xapi.VBD.Plug(session, vbdUUID); err != nil {
+        failure(err)
+    }
 
-	debug("VBD.GetDevice")
-	device, err := xapi.VBD.GetDevice(session, vbdUUID)
-	if err != nil {
-		failure(err)
-	}
-	devicePath := fmt.Sprintf("/dev/%s", device)
+    debug("VBD.GetDevice")
+    device, err := xapi.VBD.GetDevice(session, vbdUUID)
+    if err != nil {
+        failure(err)
+    }
+    devicePath := fmt.Sprintf("/dev/%s", device)
 
-	blkid, err := run("blkid", devicePath)
-	if err != nil && !strings.Contains(err.Error(), "exit status 2") {
-		failure(err)
-	}
+    blkid, err := run("blkid", devicePath)
+    if err != nil && !strings.Contains(err.Error(), "exit status 2") {
+        failure(err)
+    }
 
-	if blkid == "" {
-		if _, err := run("mkfs", "-t", options.FSType, devicePath); err != nil {
-			failure(err)
-		}
-	}
+    if blkid == "" {
+        if _, err := run("mkfs", "-t", options.FSType, devicePath); err != nil {
+            failure(err)
+        }
+    }
 
-	debug("ioutil.WriteFile")
+    debug("ioutil.WriteFile")
     f, _ := json.MarshalIndent(options, "", " ")
-	if err := ioutil.WriteFile(jsonOptionsFile, f, 0600); err != nil {
-		failure(err)
-	}
+    if err := ioutil.WriteFile(jsonOptionsFile, f, 0600); err != nil {
+        failure(err)
+    }
 
-	debug("os.MkdirAll")
-	if err := os.MkdirAll(mountDir, 0755); err != nil {
-		failure(err)
-	}
+    debug("os.MkdirAll")
+    if err := os.MkdirAll(mountDir, 0755); err != nil {
+        failure(err)
+    }
 
-	debug("syscall.Mount")
-	if err := syscall.Mount(devicePath, mountDir, options.FSType, 0, ""); err != nil {
-		failure(err)
-	}
+    debug("syscall.Mount")
+    if err := syscall.Mount(devicePath, mountDir, options.FSType, 0, ""); err != nil {
+        failure(err)
+    }
 
-	success()
+    success()
 }
 
 func unmount(mountDir string) {
-	jsonOptionsFile := fmt.Sprintf("%s.json", mountDir)
-    debug(jsonOptionsFile)
+    jsonOptionsFile := fmt.Sprintf("%s.json", mountDir)
 
-	byt, err := ioutil.ReadFile(jsonOptionsFile)
-	if err != nil {
-		failure(err)
-	}
+    byt, err := ioutil.ReadFile(jsonOptionsFile)
+    if err != nil {
+        failure(err)
+    }
 
-	options := jsonParameter{}
-	if err := json.Unmarshal(byt, &options); err != nil {
-		failure(err)
-	}
+    options := jsonParameter{}
+    if err := json.Unmarshal(byt, &options); err != nil {
+        failure(err)
+    }
 
-	xapi, session, err := xapiLogin(options.XenServerHost, options.XenServerUsername, options.XenServerPassword)
-	if err != nil {
-		failure(fmt.Errorf("Could not login at XenServer, error: %s", err.Error()))
-	}
-	defer func() {
-		if err := xapiLogout(xapi, session); err != nil {
-			failure(fmt.Errorf("Failed to log out from XenServer, error: %s", err.Error()))
-		}
-	}()
+    xapi, session, err := xapiLogin(options.XenServerHost, options.XenServerUsername, options.XenServerPassword)
+    if err != nil {
+        failure(fmt.Errorf("Could not login at XenServer, error: %s", err.Error()))
+    }
+    defer func() {
+        if err := xapiLogout(xapi, session); err != nil {
+            failure(fmt.Errorf("Failed to log out from XenServer, error: %s", err.Error()))
+        }
+    }()
 
-	vm, err := getVM(xapi, session)
-	if err != nil {
-		failure(err)
-	}
+    vm, err := getVM(xapi, session)
+    if err != nil {
+        failure(err)
+    }
 
-	devicePath, err := run("findmnt", "-n", "-o", "SOURCE", "--target", mountDir)
-	if err != nil {
-		failure(err)
-	}
+    devicePath, err := run("findmnt", "-n", "-o", "SOURCE", "--target", mountDir)
+    if err != nil {
+        failure(err)
+    }
 
-	devicePathElements := strings.Split(devicePath, "/")
-	if len(devicePathElements) < 3 || len(devicePathElements) > 3 {
-		failure(errors.New("Device path is incorrect"))
-	}
+    devicePathElements := strings.Split(devicePath, "/")
+    if len(devicePathElements) < 3 || len(devicePathElements) > 3 {
+        failure(errors.New("Device path is incorrect"))
+    }
 
-	device := devicePathElements[2]
+    device := devicePathElements[2]
     var _ = device
 
-	debug("syscall.Unmount")
-	if err := syscall.Unmount(mountDir, 0); err != nil {
-		failure(err)
-	}
+    debug("syscall.Unmount")
+    if err := syscall.Unmount(mountDir, 0); err != nil {
+        failure(err)
+    }
 
-	debug("VBD.GetAllRecords")
-	vbds, err := xapi.VBD.GetAllRecords(session)
-	if err != nil {
-		failure(err)
-	}
-    debug("Detaching Disk")
-	for ref, vbd := range vbds {
-		if vbd.VM == vm && string(vbd.VDI) == options.VDIUUID {
-            debug(fmt.Sprintf("%v", vbd.VM))
-            debug(fmt.Sprintf("%v", vm))
-            debug(fmt.Sprintf("%v", vbd.VDI))
-            debug(fmt.Sprintf("%s", options.VDIUUID))
-            debug(fmt.Sprintf("%t", vbd.VM == vm))
-            debug("--------")
-            if vbd.CurrentlyAttached {
-		        if err := detachVBD(ref, xapi, session); err != nil {
-	     	        failure(err)
-			    }
+    debug("VBD.GetAllRecords")
+    vbds, err := xapi.VBD.GetAllRecords(session)
+    if err != nil {
+        failure(err)
+    }
+    debug("Detaching VDI")
+    for ref, vbd := range vbds {
+        if vbd.VM == vm && string(vbd.VDI) == options.VDIUUID && vbd.CurrentlyAttached {
+            if err := detachVBD(ref, xapi, session); err != nil {
+                failure(err)
             }
-		}
-	}
+        }
+    }
 
-	debug("os.Remove")
-	if err := os.Remove(jsonOptionsFile); err != nil {
-		failure(err)
-	}
+    debug("os.Remove")
+    if err := os.Remove(jsonOptionsFile); err != nil {
+        failure(err)
+    }
 
-	success()
+    success()
 }
 
 func detachVBD(vbd xenapi.VBDRef, xapi *xenapi.Client, session xenapi.SessionRef) error {
-	debug("VBD.Unplug")
-	if err := xapi.VBD.Unplug(session, vbd); err != nil {
-		if err != nil && !strings.Contains(err.Error(), xenapi.ERR_DEVICE_DETACH_REJECTED) {
-			return err
-		}
+    debug("VBD.Unplug")
+    if err := xapi.VBD.Unplug(session, vbd); err != nil {
+        return err
+        //if err != nil && !strings.Contains(err.Error(), xenapi.ERR_DEVICE_DETACH_REJECTED) {
+        //}
 
-		debug("VBD.UnplugForce")
-		if err := xapi.VBD.UnplugForce(session, vbd); err != nil {
-			return err
-		}
-	}
+        //debug("VBD.UnplugForce")
+        //if err := xapi.VBD.UnplugForce(session, vbd); err != nil {
+        //    return err
+        //}
+    }
 
-	debug("VBD.Destroy")
-	return xapi.VBD.Destroy(session, vbd)
+    debug("VBD.Destroy")
+    return xapi.VBD.Destroy(session, vbd)
 }
 
 func getMAC() (string, error) {
-	debug("net.Interfaces")
-	interfaces, err := net.Interfaces()
+    debug("net.Interfaces")
+    interfaces, err := net.Interfaces()
     if err != nil {
-		return "", err
-	}
+        return "", err
+    }
 
-	var mac string
-	for _, i := range interfaces {
-		if i.Name == "eth0" && i.Flags&net.FlagUp != 0 && bytes.Compare(i.HardwareAddr, nil) != 0 {
-			mac = i.HardwareAddr.String()
-		}
-	}
+    var mac string
+    for _, i := range interfaces {
+        if i.Name == "eth0" && i.Flags&net.FlagUp != 0 && bytes.Compare(i.HardwareAddr, nil) != 0 {
+            mac = i.HardwareAddr.String()
+        }
+    }
 
-	if mac == "" {
-		return "", errors.New("MAC address not found")
-	}
+    if mac == "" {
+        return "", errors.New("MAC address not found")
+    }
 
-	return mac, nil
+    return mac, nil
 }
 
 func getVM(xapi *xenapi.Client, session xenapi.SessionRef) (xenapi.VMRef, error) {
-	mac, err := getMAC()
-	if err != nil {
-		return "", err
-	}
+    mac, err := getMAC()
+    if err != nil {
+        return "", err
+    }
 
-	debug("VIF.GetAllRecords")
-	vifs, err := xapi.VIF.GetAllRecords(session)
-	if err != nil {
-		return "", err
-	}
+    debug("VIF.GetAllRecords")
+    vifs, err := xapi.VIF.GetAllRecords(session)
+    if err != nil {
+        return "", err
+    }
 
-	var vm xenapi.VMRef
-	for _, vif := range vifs {
-		if vif.MAC == mac && vif.CurrentlyAttached {
-			vm = vif.VM
-		}
-	}
+    var vm xenapi.VMRef
+    for _, vif := range vifs {
+        if vif.MAC == mac && vif.CurrentlyAttached {
+            vm = vif.VM
+        }
+    }
 
-	if vm == "" {
-		return "", errors.New("Could not find VM with MAC")
-	}
+    if vm == "" {
+        return "", errors.New("Could not find VM with MAC")
+    }
 
-	return vm, nil
+    return vm, nil
 }
 
 func run(cmd string, args ...string) (string, error) {
-	debug(fmt.Sprintf("Running %s %s", cmd, args))
-	out, err := exec.Command(cmd, args...).CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("Error running %s %v: %v, %s", cmd, args, err, out)
-	}
-	return string(out), nil
+    debug(fmt.Sprintf("Running %s %s", cmd, args))
+    out, err := exec.Command(cmd, args...).CombinedOutput()
+    if err != nil {
+        return "", fmt.Errorf("Error running %s %v: %v, %s", cmd, args, err, out)
+    }
+    return string(out), nil
 }
 
 func xapiLogin(host, username, password string) (*xenapi.Client, xenapi.SessionRef, error) {
-	xapi, err := xenapi.NewClient(fmt.Sprintf("https://%s", host), nil)
-	if err != nil {
-		return nil, "", err
-	}
+    xapi, err := xenapi.NewClient(fmt.Sprintf("https://%s", host), nil)
+    if err != nil {
+        return nil, "", err
+    }
 
-	session, err := xapi.Session.LoginWithPassword(username, password, "1.0", "spangenberg.io/xenserver")
-	if err != nil {
-		return nil, "", err
-	}
+    session, err := xapi.Session.LoginWithPassword(username, password, "1.0", "spangenberg.io/xenserver")
+    if err != nil {
+        return nil, "", err
+    }
 
-	return xapi, session, nil
+    return xapi, session, nil
 }
 
 func xapiLogout(xapi *xenapi.Client, session xenapi.SessionRef) error {
-	return xapi.Session.Logout(session)
+    return xapi.Session.Logout(session)
 }
